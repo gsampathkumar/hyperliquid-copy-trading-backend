@@ -18,8 +18,6 @@ import { computeMetrics } from '../common/metrics';
 import logger from '../common/logger';
 import { TRADER_REFRESH_CONFIG } from '../common/config';
 
-const CACHE_KEY_PREFIX = 'hl:trader:processing:';
-
 /**
  * Compute fill rate (fills per hour) from stored fill timestamps.
  * Stored as a useful stat on the trader doc, but NOT used for scheduling.

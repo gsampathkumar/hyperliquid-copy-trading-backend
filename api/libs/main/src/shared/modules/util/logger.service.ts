@@ -49,7 +49,7 @@ export class LoggerService {
     this.serviceName = this.configService.get('SERVICE_NAME') || 'hyperliquid-api';
 
     const logtailToken = this.configService.get('LOGTAIL_SOURCE_TOKEN');
-    const logtailIngestEndpoint = this.configService.get('LOGTAIL_INGESTING_HOST');
+    const logtailIngestEndpoint = this.configService.get('LOGTAIL_INGEST_ENDPOINT') || this.configService.get('LOGTAIL_INGESTING_HOST');
     if (logtailToken && logtailIngestEndpoint) {
       this.logtail = new Logtail(logtailToken, {
         endpoint: `https://${logtailIngestEndpoint}`,

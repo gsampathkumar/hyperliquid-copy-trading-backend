@@ -18,6 +18,7 @@ import '../common/env';
 import { getStorage, Storage } from '../common/storage';
 import { getHyperliquidClient, HyperliquidClient } from '../common/hyperliquid-client';
 import { computeMetrics } from '../common/metrics';
+import { TRADER_REFRESH_CONFIG } from '../common/config';
 import logger from '../common/logger';
 
 const LEADERBOARD_URL = 'https://stats-data.hyperliquid.xyz/Mainnet/leaderboard';
@@ -174,8 +175,16 @@ async function processTrader(
 
           const { inserted: insertedCount } = await storage.bulkInsertFills(fillDocs);
 
-          // Compute metrics from fills
-          const metrics = computeMetrics(fills);
+          // Fetch funding payments for fundingAlpha
+          let fundingPayments: any[] = [];
+          try {
+            fundingPayments = await hl.paginateUserFunding(address);
+          } catch (err: any) {
+            logger.warn(`${progress} Funding fetch failed for ${address}: ${err.message}`);
+          }
+
+          // Compute metrics from fills + funding
+          const metrics = computeMetrics(fills, fundingPayments);
           Object.assign(traderData, metrics);
 
           traderData.totalFillsIngested = fills.length;
@@ -197,8 +206,23 @@ async function processTrader(
       logger.info(`${progress} ${address}: skipping fills, PnL=${traderData.allTimePnl?.toFixed(2)}`);
     }
 
-    // 5. Upsert trader
+    // 5. Compute refresh tier based on last trade time
+    const lastTradeMs = traderData.lastTradeAt ? traderData.lastTradeAt.getTime() : null;
+    const now = Date.now();
+    if (lastTradeMs && (now - lastTradeMs) < TRADER_REFRESH_CONFIG.ACTIVE_WINDOW_MS) {
+      traderData.refreshTier = 'active';
+      traderData.nextRefreshAt = new Date(now + TRADER_REFRESH_CONFIG.ACTIVE_INTERVAL_MS);
+    } else if (lastTradeMs && (now - lastTradeMs) < TRADER_REFRESH_CONFIG.RECENT_WINDOW_MS) {
+      traderData.refreshTier = 'recent';
+      traderData.nextRefreshAt = new Date(now + TRADER_REFRESH_CONFIG.RECENT_INTERVAL_MS);
+    } else {
+      traderData.refreshTier = 'stale';
+      traderData.nextRefreshAt = new Date(now + TRADER_REFRESH_CONFIG.STALE_INTERVAL_MS);
+    }
+
+    // 6. Upsert trader + mark as processed
     await storage.upsertTrader(address, traderData);
+    await storage.markTraderProcessed(address);
 
   } catch (error: any) {
     logger.error(`${progress} Failed to process ${address}: ${error.message}`);

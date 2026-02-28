@@ -8,7 +8,7 @@
 import * as os from 'os';
 import logger from './logger';
 import { ScriptLock } from './lock';
-import { getStorage } from './storage';
+import { getStorage, collectionName } from './storage';
 
 export type BatchJobStatus = 'completed' | 'skipped' | 'error';
 
@@ -34,7 +34,7 @@ async function recordJobRun(
 ): Promise<void> {
   try {
     const storage = getStorage();
-    const collection = storage.getDb().collection('hl_batch_job_runs');
+    const collection = storage.getDb().collection(collectionName('hl_batch_job_runs'));
 
     await collection.insertOne({
       scriptName,

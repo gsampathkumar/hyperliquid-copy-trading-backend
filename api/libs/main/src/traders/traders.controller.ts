@@ -3,7 +3,7 @@ import { TradersService } from './traders.service';
 import { TradersQueryDto, TraderSearchDto, TraderPositionsQueryDto, TraderTradesQueryDto } from './dto/traders-query.dto';
 import { ExploreQueryDto, ExploreRowsQueryDto } from './dto/explore-query.dto';
 
-@Controller('v1/hl/traders')
+@Controller('hl/traders')
 export class TradersController {
   constructor(private readonly tradersService: TradersService) {}
 

@@ -4,9 +4,12 @@ import { Injectable } from '@nestjs/common';
  * Token Bucket Rate Limiter for Hyperliquid API Calls
  * Ensures we stay within rate limits while maximizing throughput
  *
- * Hyperliquid rate limits:
- * - Info API: 1200 req/min = 20 req/s
+ * Hyperliquid rate limits (weight-based):
+ * - Info API: 1200 weight/min = 20 weight/s
  * - Exchange API: 100 req/min = ~1.7 req/s
+ *
+ * Endpoint weights: allMids=2, clearinghouseState=2, l2Book=2,
+ * meta/metaAndAssetCtxs/openOrders/userFills=20, userFillsByTime/userFunding/fundingHistory/candleSnapshot=25
  *
  * Strategy: Use 70% of published limits for safety margin.
  */
@@ -34,16 +37,16 @@ export class HyperliquidRateLimiter {
     this.lastRefill = now;
   }
 
-  async acquire(): Promise<void> {
+  async acquire(weight: number = 1): Promise<void> {
     return new Promise((resolve) => {
       const tryAcquire = () => {
         this._refillTokens();
 
-        if (this.tokens >= 1) {
-          this.tokens -= 1;
+        if (this.tokens >= weight) {
+          this.tokens -= weight;
           resolve();
         } else {
-          const waitTime = (1 - this.tokens) / this.refillRate * 1000;
+          const waitTime = (weight - this.tokens) / this.refillRate * 1000;
           setTimeout(tryAcquire, Math.max(10, waitTime));
         }
       };
