@@ -1,0 +1,63 @@
+{
+  "version": 1,
+  "projects": {
+    "hyperliquid-api": {
+      "root": "apps/hyperliquid-api",
+      "tags": ["app:hyperliquid-api"],
+      "sourceRoot": "apps/hyperliquid-api/src",
+      "projectType": "application",
+      "prefix": "hyperliquid-api",
+      "schematics": {},
+      "architect": {
+        "build": {
+          "builder": "@nrwl/node:build",
+          "options": {
+            "outputPath": "dist/apps/hyperliquid-api",
+            "main": "apps/hyperliquid-api/src/main.ts",
+            "tsConfig": "apps/hyperliquid-api/tsconfig.app.json",
+            "assets": ["apps/hyperliquid-api/src/assets"],
+            "typeCheck": false
+          },
+          "configurations": {
+            "production": {
+              "optimization": true,
+              "sourceMap": false,
+              "extractLicenses": true,
+              "inspect": false
+            }
+          }
+        },
+        "serve": {
+          "builder": "@nrwl/node:execute",
+          "options": {
+            "buildTarget": "hyperliquid-api:build",
+            "watch": false,
+            "inspect": false
+          }
+        },
+        "lint": {
+          "builder": "@nrwl/linter:eslint",
+          "options": {
+            "lintFilePatterns": ["apps/hyperliquid-api/**/*.ts"]
+          }
+        }
+      }
+    },
+    "main": {
+      "root": "libs/main",
+      "sourceRoot": "libs/main/src",
+      "projectType": "library",
+      "schematics": {},
+      "architect": {
+        "lint": {
+          "builder": "@nrwl/linter:eslint",
+          "options": {
+            "lintFilePatterns": ["libs/main/**/*.ts"]
+          }
+        }
+      }
+    }
+  },
+  "defaultProject": "hyperliquid-api",
+  "schematics": {}
+}

@@ -1,0 +1,31 @@
+{
+  "npmScope": "hyperliquid-api",
+  "affected": {
+    "defaultBase": "master"
+  },
+  "implicitDependencies": {
+    "workspace.json": "*",
+    "package.json": {
+      "dependencies": "*",
+      "devDependencies": "*"
+    },
+    "tsconfig.base.json": "*",
+    "nx.json": "*"
+  },
+  "tasksRunnerOptions": {
+    "default": {
+      "runner": "@nrwl/workspace/tasks-runners/default",
+      "options": {
+        "cacheableOperations": ["build", "lint"]
+      }
+    }
+  },
+  "projects": {
+    "hyperliquid-api": {
+      "tags": ["type:backend"]
+    },
+    "main": {
+      "tags": ["type:lib"]
+    }
+  }
+}

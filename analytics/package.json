@@ -1,0 +1,43 @@
+{
+  "name": "hyperliquid-analytics",
+  "version": "1.0.0",
+  "description": "Hyperliquid analytics pipeline - workers and event collection",
+  "main": "realtime_event_collector/event-collector.ts",
+  "scripts": {
+    "start": "ts-node realtime_event_collector/event-collector.ts",
+    "collector": "ts-node realtime_event_collector/event-collector.ts",
+    "workers": "ts-node workers/index.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint \"**/*.ts\" --ignore-pattern \"node_modules/\"",
+    "lint:fix": "eslint \"**/*.ts\" --ignore-pattern \"node_modules/\" --fix",
+    "bootstrap:traders": "ts-node batch_scripts/bootstrap-traders.ts",
+    "refresh:traders": "ts-node batch_scripts/trader-refresh-processor.ts",
+    "refresh:assets": "ts-node batch_scripts/asset-refresh-processor.ts",
+    "refresh:assets:funding": "ts-node batch_scripts/asset-refresh-processor.ts --funding-snapshot",
+    "test:pipeline": "ts-node batch_scripts/test-pipeline.ts"
+  },
+  "dependencies": {
+    "@aws-sdk/client-ses": "^3.400.0",
+    "@aws-sdk/credential-providers": "^3.400.0",
+    "@logtail/node": "^0.4.0",
+    "@nktkas/hyperliquid": "^0.25.5",
+    "bullmq": "^5.34.0",
+    "dotenv": "^16.3.1",
+    "ioredis": "^5.4.1",
+    "mongodb": "^6.3.0",
+    "ws": "^8.14.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/ws": "^8.5.10",
+    "@typescript-eslint/eslint-plugin": "^8.49.0",
+    "@typescript-eslint/parser": "^8.49.0",
+    "eslint": "^9.39.1",
+    "mongodb-memory-server": "^11.0.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.2",
+    "vitest": "^4.0.18"
+  }
+}
