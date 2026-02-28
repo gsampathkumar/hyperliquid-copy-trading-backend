@@ -12,7 +12,7 @@ import { Worker, Job } from 'bullmq';
 import Redis from 'ioredis';
 import { QUEUE_NAMES, TraderStatsJob } from '../common/queue/job-types';
 import { queueConfigs } from '../common/queue/queue-config';
-import { getHyperliquidClient } from '../common/hyperliquid-client';
+import { getHyperliquidClient, parsePortfolioResponse } from '../common/hyperliquid-client';
 import { getStorage } from '../common/storage';
 import { computeMetrics } from '../common/metrics';
 import logger from '../common/logger';
@@ -142,7 +142,7 @@ async function processTraderStats(job: Job<TraderStatsJob>): Promise<void> {
         crossed: f.crossed || false,
         feeToken: f.feeToken,
         startPosition: f.startPosition,
-        liquidation: f.liquidation || false,
+        liquidation: !!f.liquidation,
         source: 'rest',
       }));
 
@@ -165,19 +165,19 @@ async function processTraderStats(job: Job<TraderStatsJob>): Promise<void> {
       ...metrics,
     };
 
-    // Portfolio data
-    if (portfolio) {
-      const allTime = portfolio.allTime || {};
-      const day = portfolio.day || {};
-      const week = portfolio.week || {};
-      const month = portfolio.month || {};
-
-      traderUpdate.allTimePnl = parseFloat(allTime.pnl || '0');
-      traderUpdate.allTimeRoi = parseFloat(allTime.roi || '0');
-      traderUpdate.dayPnl = parseFloat(day.pnl || '0');
-      traderUpdate.weekPnl = parseFloat(week.pnl || '0');
-      traderUpdate.monthPnl = parseFloat(month.pnl || '0');
-      traderUpdate.accountValue = parseFloat(allTime.accountValue || portfolio.accountValue || '0');
+    // Portfolio data (SDK returns tuple array, parsePortfolioResponse extracts latest values)
+    const parsedPortfolio = parsePortfolioResponse(portfolio);
+    if (parsedPortfolio) {
+      traderUpdate.allTimePnl = parsedPortfolio.allTime.pnl;
+      const initialCapital = parsedPortfolio.allTime.accountValue - parsedPortfolio.allTime.pnl;
+      traderUpdate.allTimeRoi = initialCapital > 0
+        ? parsedPortfolio.allTime.pnl / initialCapital
+        : null;
+      traderUpdate.dayPnl = parsedPortfolio.day.pnl;
+      traderUpdate.weekPnl = parsedPortfolio.week.pnl;
+      traderUpdate.monthPnl = parsedPortfolio.month.pnl;
+      traderUpdate.accountValue = parsedPortfolio.allTime.accountValue;
+      traderUpdate.totalVolume = parsedPortfolio.allTime.vlm;
     }
 
     // Clearinghouse data
@@ -205,10 +205,12 @@ async function processTraderStats(job: Job<TraderStatsJob>): Promise<void> {
         }
       }
 
-      // Detect last trade time from positions or fills
-      if (newFills.length > 0) {
-        traderUpdate.lastTradeAt = new Date(newFills[newFills.length - 1].time);
-      }
+    }
+
+    // Detect last trade time from fills (find the most recent timestamp)
+    if (newFills.length > 0) {
+      const maxFillTime = Math.max(...newFills.map((f: any) => f.time));
+      traderUpdate.lastTradeAt = new Date(maxFillTime);
     }
 
     // 8. Backfill tracking

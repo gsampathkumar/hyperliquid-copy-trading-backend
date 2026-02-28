@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Trader, TraderDocument } from './schemas/trader.schema';
@@ -151,9 +151,18 @@ export class TradersService {
   /**
    * Get single trader detail.
    */
+  private validateAddress(address: string): string {
+    const normalized = address.toLowerCase();
+    if (!/^0x[0-9a-f]{40}$/.test(normalized)) {
+      throw new BadRequestException('Invalid Ethereum address format');
+    }
+    return normalized;
+  }
+
   async getTrader(address: string) {
+    const normalized = this.validateAddress(address);
     const trader = await this.traderModel
-      .findOne({ address: address.toLowerCase() })
+      .findOne({ address: normalized })
       .lean()
       .exec();
 
@@ -170,13 +179,14 @@ export class TradersService {
    * - status=closed: reconstructed from stored fills (matching open/close directions)
    */
   async getTraderPositions(address: string, query: TraderPositionsQueryDto) {
+    const normalized = this.validateAddress(address);
     const { status = 'open' } = query;
 
     if (status === 'open') {
-      return this.getOpenPositions(address);
+      return this.getOpenPositions(normalized);
     }
 
-    return this.getClosedPositions(address);
+    return this.getClosedPositions(normalized);
   }
 
   private async getOpenPositions(address: string) {
@@ -211,10 +221,11 @@ export class TradersService {
    * Returns most recent closed positions first.
    */
   private async getClosedPositions(address: string) {
-    // Fetch fills sorted ascending by time for reconstruction
+    // Fetch recent fills sorted ascending by time for reconstruction (limit to prevent OOM)
     const fills = await this.fillModel
       .find({ traderAddress: address.toLowerCase() })
       .sort({ time: 1 })
+      .limit(10000)
       .lean()
       .exec();
 
@@ -278,10 +289,11 @@ export class TradersService {
    * Get trader's trade history from stored fills.
    */
   async getTraderTrades(address: string, query: TraderTradesQueryDto) {
+    const normalized = this.validateAddress(address);
     const { page = 1, limit = 20, coin } = query;
     const skip = (page - 1) * limit;
 
-    const filter: any = { traderAddress: address.toLowerCase() };
+    const filter: any = { traderAddress: normalized };
     if (coin) filter.coin = coin;
 
     const [trades, total] = await Promise.all([

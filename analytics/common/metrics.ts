@@ -61,9 +61,13 @@ export function computeMetrics(fills: FillRecord[], fundingPayments?: any[]): Tr
   const totalVolume = sorted.reduce((sum, f) => sum + parseFloat(f.px) * parseFloat(f.sz), 0);
   const liquidationCount = sorted.filter(f => f.liquidation).length;
 
-  // Extract closed trade PnLs from fills with closedPnl
+  // Extract closed trade PnLs from fills, deducting fees for consistency with equity curve
   const closedPnls = sorted
-    .map(f => parseFloat(f.closedPnl))
+    .map(f => {
+      const pnl = parseFloat(f.closedPnl);
+      const fee = parseFloat(f.fee || '0');
+      return pnl - fee;
+    })
     .filter(pnl => pnl !== 0);
 
   // Reconstruct closed trades from fill directions
@@ -189,7 +193,8 @@ function computeSortino(pnls: number[]): number | null {
 
   if (downsideReturns.length === 0) return pnls.length > 1 ? 999 : null; // No downside = very good
 
-  const downsideVariance = downsideReturns.reduce((s, p) => s + Math.pow(p, 2), 0) / downsideReturns.length;
+  // Sortino uses all observations in denominator: sqrt(sum(min(r,0)^2) / N)
+  const downsideVariance = downsideReturns.reduce((s, p) => s + Math.pow(p, 2), 0) / pnls.length;
   const downsideStd = Math.sqrt(downsideVariance);
 
   if (downsideStd === 0) return null;
@@ -216,7 +221,9 @@ function computeDrawdown(curve: { time: number; equity: number }[]): {
     const dd = peak - point.equity;
     if (dd > maxDD) {
       maxDD = dd;
-      maxDDPercent = peak !== 0 ? (dd / Math.abs(peak)) * 100 : 0;
+      if (peak > 0) {
+        maxDDPercent = (dd / peak) * 100;
+      }
     }
   }
 
@@ -253,7 +260,7 @@ function computeKelly(wins: number[], losses: number[]): number | null {
 function reconstructClosedTrades(fills: FillRecord[]): ClosedTrade[] {
   const trades: ClosedTrade[] = [];
 
-  // Group by coin, track open positions
+  // Group by coin, track open positions (only set on first open, not scale-in)
   const openPositions = new Map<string, { direction: 'long' | 'short'; openTime: number; leverage: number }>();
 
   for (const fill of fills) {
@@ -261,18 +268,15 @@ function reconstructClosedTrades(fills: FillRecord[]): ClosedTrade[] {
     const coin = fill.coin;
 
     if (dir.startsWith('Open')) {
-      const direction = dir.includes('Long') ? 'long' as const : 'short' as const;
-      const startPos = parseFloat(fill.startPosition || '0');
-      const sz = parseFloat(fill.sz);
-      const px = parseFloat(fill.px);
-      // Rough leverage estimate from position size relative to notional
-      const leverage = startPos > 0 ? 1 : 1; // Will be refined with clearinghouse data
-
-      openPositions.set(coin, { direction, openTime: fill.time, leverage });
+      // Only record open time on initial position open, not on scale-in
+      if (!openPositions.has(coin)) {
+        const direction = dir.includes('Long') ? 'long' as const : 'short' as const;
+        openPositions.set(coin, { direction, openTime: fill.time, leverage: 1 });
+      }
     } else if (dir.startsWith('Close')) {
       const open = openPositions.get(coin);
       if (open) {
-        const pnl = parseFloat(fill.closedPnl);
+        const pnl = parseFloat(fill.closedPnl) - parseFloat(fill.fee || '0');
         const volume = parseFloat(fill.px) * parseFloat(fill.sz);
 
         trades.push({
@@ -286,7 +290,7 @@ function reconstructClosedTrades(fills: FillRecord[]): ClosedTrade[] {
         });
 
         // Check if position is fully closed
-        const remainingPos = parseFloat(fill.startPosition || '0') - parseFloat(fill.sz);
+        const remainingPos = Math.abs(parseFloat(fill.startPosition || '0')) - parseFloat(fill.sz);
         if (Math.abs(remainingPos) < 0.0001) {
           openPositions.delete(coin);
         }

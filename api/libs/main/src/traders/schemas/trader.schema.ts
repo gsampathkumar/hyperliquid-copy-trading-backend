@@ -3,8 +3,10 @@ import { Document } from 'mongoose';
 
 export type TraderDocument = Trader & Document;
 
+const SHARED_PREFIX = process.env.SHARED_PREFIX || '';
+
 @Schema({
-  collection: `${process.env.SHARED_PREFIX}_hl_traders`,
+  collection: SHARED_PREFIX ? `${SHARED_PREFIX}_hl_traders` : 'hl_traders',
   timestamps: { createdAt: 'createdAt', updatedAt: 'updatedAt' },
 })
 export class Trader {

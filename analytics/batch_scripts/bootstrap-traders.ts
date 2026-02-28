@@ -16,7 +16,7 @@
 
 import '../common/env';
 import { getStorage, Storage } from '../common/storage';
-import { getHyperliquidClient, HyperliquidClient } from '../common/hyperliquid-client';
+import { getHyperliquidClient, HyperliquidClient, parsePortfolioResponse } from '../common/hyperliquid-client';
 import { computeMetrics } from '../common/metrics';
 import { TRADER_REFRESH_CONFIG } from '../common/config';
 import logger from '../common/logger';
@@ -109,14 +109,19 @@ async function processTrader(
     // Leaderboard source data (raw)
     traderData.leaderboardPnl = wp.allTime?.pnl || entry.accountValue || null;
 
-    if (portfolio) {
-      const allTime = portfolio.allTime || {};
-      traderData.allTimePnl = parseFloat(allTime.pnl || '0');
-      traderData.allTimeRoi = parseFloat(allTime.roi || '0');
-      traderData.dayPnl = parseFloat((portfolio.day || {}).pnl || '0');
-      traderData.weekPnl = parseFloat((portfolio.week || {}).pnl || '0');
-      traderData.monthPnl = parseFloat((portfolio.month || {}).pnl || '0');
-      traderData.accountValue = parseFloat(allTime.accountValue || portfolio.accountValue || '0');
+    // Enrich from portfolio API (tuple array parsed by parsePortfolioResponse)
+    const parsedPortfolio = parsePortfolioResponse(portfolio);
+    if (parsedPortfolio) {
+      traderData.allTimePnl = parsedPortfolio.allTime.pnl;
+      const initialCapital = parsedPortfolio.allTime.accountValue - parsedPortfolio.allTime.pnl;
+      traderData.allTimeRoi = initialCapital > 0
+        ? parsedPortfolio.allTime.pnl / initialCapital
+        : null;
+      traderData.dayPnl = parsedPortfolio.day.pnl;
+      traderData.weekPnl = parsedPortfolio.week.pnl;
+      traderData.monthPnl = parsedPortfolio.month.pnl;
+      traderData.accountValue = parsedPortfolio.allTime.accountValue;
+      traderData.totalVolume = parsedPortfolio.allTime.vlm;
     }
 
     if (clearinghouse) {
@@ -169,7 +174,7 @@ async function processTrader(
             crossed: f.crossed || false,
             feeToken: f.feeToken,
             startPosition: f.startPosition,
-            liquidation: f.liquidation || false,
+            liquidation: !!f.liquidation,
             source: 'rest',
           }));
 
@@ -192,7 +197,8 @@ async function processTrader(
           traderData.fillsFullyBackfilled = !hitApiCap;
 
           if (fills.length > 0) {
-            traderData.lastTradeAt = new Date(fills[fills.length - 1].time);
+            const maxFillTime = Math.max(...fills.map((f: any) => f.time));
+            traderData.lastTradeAt = new Date(maxFillTime);
           }
 
           logger.info(`${progress} ${address}: ${insertedCount} fills stored, PnL=${traderData.allTimePnl?.toFixed(2)}, winRate=${metrics.winRate.toFixed(1)}%`);
@@ -293,10 +299,12 @@ async function main(): Promise<void> {
 
       // Progress log every 50 traders
       if ((i + batchSize) % 50 < batchSize) {
-        const elapsed = ((Date.now() - startTime) / 1000 / 60).toFixed(1);
-        const rate = (processed / ((Date.now() - startTime) / 1000 / 60)).toFixed(1);
-        const eta = ((leaderboard.length - i - batchSize) / parseFloat(rate)).toFixed(1);
-        logger.info(`[Bootstrap] Progress: ${i + batchSize}/${leaderboard.length} | ${processed} OK, ${errors} errors | ${elapsed}min elapsed, ~${eta}min ETA | ${rate} traders/min`);
+        const elapsedMin = (Date.now() - startTime) / 1000 / 60;
+        const elapsed = elapsedMin.toFixed(1);
+        const rate = elapsedMin > 0 ? processed / elapsedMin : 0;
+        const remaining = leaderboard.length - i - batchSize;
+        const eta = rate > 0 ? (remaining / rate).toFixed(1) : '?';
+        logger.info(`[Bootstrap] Progress: ${i + batchSize}/${leaderboard.length} | ${processed} OK, ${errors} errors | ${elapsed}min elapsed, ~${eta}min ETA | ${rate.toFixed(1)} traders/min`);
       }
     }
 

@@ -44,7 +44,7 @@ export class ScriptLock {
         return false;
       }
       console.error(`[Lock] Warning: Could not acquire lock: ${error.message}`);
-      return true;
+      return false;
     }
   }
 

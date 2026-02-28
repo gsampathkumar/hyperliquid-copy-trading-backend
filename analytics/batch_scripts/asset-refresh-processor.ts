@@ -36,68 +36,64 @@ export class AssetRefreshProcessor {
     let priceEnqueued = 0;
     let fundingEnqueued = 0;
 
-    try {
-      await storage.connect();
+    await storage.connect();
 
-      const queue = getAssetStatsQueue();
-      const now = new Date();
+    const queue = getAssetStatsQueue();
+    const now = new Date();
 
-      // Check when assets were last updated
-      const lastUpdated = await storage.assets()
-        .findOne({}, { sort: { lastUpdatedAt: -1 }, projection: { lastUpdatedAt: 1 } });
+    // Check when assets were last updated
+    const lastUpdated = await storage.assets()
+      .findOne({}, { sort: { lastUpdatedAt: -1 }, projection: { lastUpdatedAt: 1 } });
 
-      const lastUpdateTime = lastUpdated?.lastUpdatedAt?.getTime() || 0;
-      const timeSinceUpdate = Date.now() - lastUpdateTime;
+    const lastUpdateTime = lastUpdated?.lastUpdatedAt?.getTime() || 0;
+    const timeSinceUpdate = Date.now() - lastUpdateTime;
 
-      // Enqueue price refresh if enough time has passed
-      if (timeSinceUpdate >= ASSET_REFRESH_CONFIG.PRICE_INTERVAL_MS) {
+    // Enqueue price refresh if enough time has passed
+    if (timeSinceUpdate >= ASSET_REFRESH_CONFIG.PRICE_INTERVAL_MS) {
+      const jobData: AssetStatsJob = {
+        reason: 'scheduled',
+        enqueuedAt: now,
+      };
+
+      const added = await enqueueIfNotExists(queue, 'refresh-all', 'asset_price_refresh', jobData);
+      if (added) {
+        priceEnqueued = 1;
+        logger.info(`[AssetRefresh] Enqueued price refresh (last update ${Math.round(timeSinceUpdate / 1000)}s ago)`);
+      } else {
+        logger.info('[AssetRefresh] Price refresh already in queue');
+      }
+    } else {
+      const secsUntilNext = Math.round((ASSET_REFRESH_CONFIG.PRICE_INTERVAL_MS - timeSinceUpdate) / 1000);
+      logger.info(`[AssetRefresh] Price data fresh (next refresh in ${secsUntilNext}s)`);
+    }
+
+    // Enqueue funding snapshot if requested
+    if (options.fundingSnapshot) {
+      // Check last funding snapshot
+      const lastSnapshot = await storage.fundingHistory()
+        .findOne({}, { sort: { timestamp: -1 }, projection: { timestamp: 1 } });
+
+      const lastSnapshotTime = lastSnapshot?.timestamp?.getTime() || 0;
+      const timeSinceSnapshot = Date.now() - lastSnapshotTime;
+
+      if (timeSinceSnapshot >= ASSET_REFRESH_CONFIG.FUNDING_SNAPSHOT_INTERVAL_MS) {
         const jobData: AssetStatsJob = {
-          reason: 'scheduled',
+          reason: 'funding-snapshot',
           enqueuedAt: now,
         };
 
-        const added = await enqueueIfNotExists(queue, 'refresh-all', 'asset_price_refresh', jobData);
+        const added = await enqueueIfNotExists(queue, 'funding-snapshot', 'asset_funding_snapshot', jobData);
         if (added) {
-          priceEnqueued = 1;
-          logger.info(`[AssetRefresh] Enqueued price refresh (last update ${Math.round(timeSinceUpdate / 1000)}s ago)`);
-        } else {
-          logger.info('[AssetRefresh] Price refresh already in queue');
+          fundingEnqueued = 1;
+          logger.info(`[AssetRefresh] Enqueued funding snapshot (last snapshot ${Math.round(timeSinceSnapshot / 1000)}s ago)`);
         }
       } else {
-        const secsUntilNext = Math.round((ASSET_REFRESH_CONFIG.PRICE_INTERVAL_MS - timeSinceUpdate) / 1000);
-        logger.info(`[AssetRefresh] Price data fresh (next refresh in ${secsUntilNext}s)`);
+        const minsUntilNext = Math.round((ASSET_REFRESH_CONFIG.FUNDING_SNAPSHOT_INTERVAL_MS - timeSinceSnapshot) / 60000);
+        logger.info(`[AssetRefresh] Funding snapshot fresh (next in ${minsUntilNext}min)`);
       }
-
-      // Enqueue funding snapshot if requested
-      if (options.fundingSnapshot) {
-        // Check last funding snapshot
-        const lastSnapshot = await storage.fundingHistory()
-          .findOne({}, { sort: { timestamp: -1 }, projection: { timestamp: 1 } });
-
-        const lastSnapshotTime = lastSnapshot?.timestamp?.getTime() || 0;
-        const timeSinceSnapshot = Date.now() - lastSnapshotTime;
-
-        if (timeSinceSnapshot >= ASSET_REFRESH_CONFIG.FUNDING_SNAPSHOT_INTERVAL_MS) {
-          const jobData: AssetStatsJob = {
-            reason: 'funding-snapshot',
-            enqueuedAt: now,
-          };
-
-          const added = await enqueueIfNotExists(queue, 'funding-snapshot', 'asset_funding_snapshot', jobData);
-          if (added) {
-            fundingEnqueued = 1;
-            logger.info(`[AssetRefresh] Enqueued funding snapshot (last snapshot ${Math.round(timeSinceSnapshot / 1000)}s ago)`);
-          }
-        } else {
-          const minsUntilNext = Math.round((ASSET_REFRESH_CONFIG.FUNDING_SNAPSHOT_INTERVAL_MS - timeSinceSnapshot) / 60000);
-          logger.info(`[AssetRefresh] Funding snapshot fresh (next in ${minsUntilNext}min)`);
-        }
-      }
-
-      logger.info(`[AssetRefresh] Complete: price=${priceEnqueued}, funding=${fundingEnqueued}`);
-    } finally {
-      await storage.disconnect();
     }
+
+    logger.info(`[AssetRefresh] Complete: price=${priceEnqueued}, funding=${fundingEnqueued}`);
 
     return { priceEnqueued, fundingEnqueued };
   }
@@ -133,15 +129,18 @@ Cron examples:
 
   const fundingSnapshot = args.includes('--funding-snapshot');
 
+  const storage = getStorage();
   withLockAndReport('asset-refresh-processor', async () => {
     const processor = new AssetRefreshProcessor();
     return processor.run({ fundingSnapshot });
   })
-    .then(() => {
+    .then(async () => {
+      await storage.disconnect();
       process.exit(0);
     })
-    .catch(error => {
+    .catch(async (error) => {
       logger.error(`[AssetRefresh] Fatal error: ${error}`);
+      await storage.disconnect().catch(() => {});
       process.exit(1);
     });
 }

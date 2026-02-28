@@ -3,8 +3,10 @@ import { Document } from 'mongoose';
 
 export type FillDocument = Fill & Document;
 
+const SHARED_PREFIX = process.env.SHARED_PREFIX || '';
+
 @Schema({
-  collection: `${process.env.SHARED_PREFIX}_hl_fills`,
+  collection: SHARED_PREFIX ? `${SHARED_PREFIX}_hl_fills` : 'hl_fills',
   timestamps: false,
 })
 export class Fill {

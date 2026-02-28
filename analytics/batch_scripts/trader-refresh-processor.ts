@@ -53,70 +53,66 @@ export class TraderRefreshProcessor {
     let neverProcessedEnqueued = 0;
     let neverProcessedSkipped = 0;
 
-    try {
-      await this.storage.connect();
+    await this.storage.connect();
 
-      const queue = getTraderStatsQueue();
-      const now = new Date();
+    const queue = getTraderStatsQueue();
+    const now = new Date();
 
-      // Phase 1: Traders whose nextRefreshAt has passed
-      const tradersNeedingRefresh = await this.storage.getTradersNeedingScheduledRefresh(limit);
-      logger.info(`[TraderRefresh] Phase 1: ${tradersNeedingRefresh.length} traders past nextRefreshAt`);
+    // Phase 1: Traders whose nextRefreshAt has passed
+    const tradersNeedingRefresh = await this.storage.getTradersNeedingScheduledRefresh(limit);
+    logger.info(`[TraderRefresh] Phase 1: ${tradersNeedingRefresh.length} traders past nextRefreshAt`);
 
-      for (const trader of tradersNeedingRefresh) {
-        const address = trader.address.toLowerCase();
-        const jobData: TraderStatsJob = {
-          traderAddress: address,
-          reason: 'scheduled',
-          enqueuedAt: now,
-        };
+    for (const trader of tradersNeedingRefresh) {
+      const address = trader.address.toLowerCase();
+      const jobData: TraderStatsJob = {
+        traderAddress: address,
+        reason: 'scheduled',
+        enqueuedAt: now,
+      };
 
-        const added = await enqueueIfNotExists(queue, 'compute', `trader_${address}`, jobData);
-        if (added) {
-          scheduledEnqueued++;
-        } else {
-          scheduledSkipped++;
-        }
-
-        if ((scheduledEnqueued + scheduledSkipped) % 100 === 0) {
-          logger.info(`[TraderRefresh] Phase 1 progress: ${scheduledEnqueued} enqueued, ${scheduledSkipped} skipped`);
-        }
+      const added = await enqueueIfNotExists(queue, 'compute', `trader_${address}`, jobData);
+      if (added) {
+        scheduledEnqueued++;
+      } else {
+        scheduledSkipped++;
       }
 
-      logger.info(`[TraderRefresh] Phase 1 complete: ${scheduledEnqueued} enqueued, ${scheduledSkipped} already in queue`);
-
-      // Phase 2: Traders that have never been processed (no traderProcessedAt)
-      const neverProcessed = await this.storage.traders().find({
-        traderProcessedAt: { $exists: false },
-      })
-        .sort({ _id: 1 })
-        .limit(limit)
-        .toArray();
-
-      logger.info(`[TraderRefresh] Phase 2: ${neverProcessed.length} never-processed traders`);
-
-      for (const trader of neverProcessed) {
-        const address = trader.address.toLowerCase();
-        const jobData: TraderStatsJob = {
-          traderAddress: address,
-          reason: 'discovery',
-          enqueuedAt: now,
-        };
-
-        const added = await enqueueIfNotExists(queue, 'compute', `trader_${address}`, jobData);
-        if (added) {
-          neverProcessedEnqueued++;
-        } else {
-          neverProcessedSkipped++;
-        }
+      if ((scheduledEnqueued + scheduledSkipped) % 100 === 0) {
+        logger.info(`[TraderRefresh] Phase 1 progress: ${scheduledEnqueued} enqueued, ${scheduledSkipped} skipped`);
       }
-
-      logger.info(
-        `[TraderRefresh] Complete: scheduled=${scheduledEnqueued}/${scheduledSkipped}, discovery=${neverProcessedEnqueued}/${neverProcessedSkipped}`,
-      );
-    } finally {
-      await this.storage.disconnect();
     }
+
+    logger.info(`[TraderRefresh] Phase 1 complete: ${scheduledEnqueued} enqueued, ${scheduledSkipped} already in queue`);
+
+    // Phase 2: Traders that have never been processed (no traderProcessedAt)
+    const neverProcessed = await this.storage.traders().find({
+      traderProcessedAt: { $exists: false },
+    })
+      .sort({ _id: 1 })
+      .limit(limit)
+      .toArray();
+
+    logger.info(`[TraderRefresh] Phase 2: ${neverProcessed.length} never-processed traders`);
+
+    for (const trader of neverProcessed) {
+      const address = trader.address.toLowerCase();
+      const jobData: TraderStatsJob = {
+        traderAddress: address,
+        reason: 'discovery',
+        enqueuedAt: now,
+      };
+
+      const added = await enqueueIfNotExists(queue, 'compute', `trader_${address}`, jobData);
+      if (added) {
+        neverProcessedEnqueued++;
+      } else {
+        neverProcessedSkipped++;
+      }
+    }
+
+    logger.info(
+      `[TraderRefresh] Complete: scheduled=${scheduledEnqueued}/${scheduledSkipped}, discovery=${neverProcessedEnqueued}/${neverProcessedSkipped}`,
+    );
 
     return { scheduledEnqueued, scheduledSkipped, neverProcessedEnqueued, neverProcessedSkipped };
   }
@@ -188,12 +184,15 @@ Examples:
     }
   };
 
+  const storage = getStorage();
   withLockAndReport('trader-refresh-processor', runProcessor)
-    .then(() => {
+    .then(async () => {
+      await storage.disconnect();
       process.exit(0);
     })
-    .catch(error => {
+    .catch(async (error) => {
       logger.error(`[TraderRefresh] Fatal error: ${error}`);
+      await storage.disconnect().catch(() => {});
       process.exit(1);
     });
 }

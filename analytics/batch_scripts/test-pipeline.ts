@@ -12,7 +12,7 @@
 
 import '../common/env';
 import { getStorage } from '../common/storage';
-import { getHyperliquidClient } from '../common/hyperliquid-client';
+import { getHyperliquidClient, parsePortfolioResponse } from '../common/hyperliquid-client';
 import { computeMetrics } from '../common/metrics';
 import logger from '../common/logger';
 
@@ -59,9 +59,11 @@ async function testTraderIngestion() {
     try {
       // Portfolio
       let portfolio: any = null;
+      let parsedPortfolio: ReturnType<typeof parsePortfolioResponse> = null;
       try {
         portfolio = await hl.getPortfolio(address);
-        const pnl = portfolio?.allTime?.pnl || 'N/A';
+        parsedPortfolio = parsePortfolioResponse(portfolio);
+        const pnl = parsedPortfolio?.allTime.pnl?.toFixed(2) ?? 'N/A';
         logger.info(`  Portfolio: allTimePnl=${pnl}`);
       } catch (err: any) {
         logger.warn(`  Portfolio failed: ${err.message}`);
@@ -111,7 +113,7 @@ async function testTraderIngestion() {
           crossed: f.crossed || false,
           feeToken: f.feeToken,
           startPosition: f.startPosition,
-          liquidation: f.liquidation || false,
+          liquidation: !!f.liquidation,
           source: 'rest',
         }));
 
@@ -124,13 +126,15 @@ async function testTraderIngestion() {
           ...metrics,
         };
 
-        if (portfolio) {
-          traderData.allTimePnl = parseFloat(portfolio.allTime?.pnl || '0');
-          traderData.allTimeRoi = parseFloat(portfolio.allTime?.roi || '0');
-          traderData.accountValue = parseFloat(portfolio.allTime?.accountValue || '0');
-          traderData.dayPnl = parseFloat(portfolio.day?.pnl || '0');
-          traderData.weekPnl = parseFloat(portfolio.week?.pnl || '0');
-          traderData.monthPnl = parseFloat(portfolio.month?.pnl || '0');
+        if (parsedPortfolio) {
+          traderData.allTimePnl = parsedPortfolio.allTime.pnl;
+          const initialCapital = parsedPortfolio.allTime.accountValue - parsedPortfolio.allTime.pnl;
+          traderData.allTimeRoi = initialCapital > 0 ? parsedPortfolio.allTime.pnl / initialCapital : null;
+          traderData.accountValue = parsedPortfolio.allTime.accountValue;
+          traderData.dayPnl = parsedPortfolio.day.pnl;
+          traderData.weekPnl = parsedPortfolio.week.pnl;
+          traderData.monthPnl = parsedPortfolio.month.pnl;
+          traderData.totalVolume = parsedPortfolio.allTime.vlm;
         }
 
         if (clearinghouse) {
@@ -151,9 +155,9 @@ async function testTraderIngestion() {
       } else {
         // Still store the trader with portfolio/clearinghouse data
         const traderData: Record<string, any> = { lastSeenAt: new Date() };
-        if (portfolio) {
-          traderData.allTimePnl = parseFloat(portfolio.allTime?.pnl || '0');
-          traderData.accountValue = parseFloat(portfolio.allTime?.accountValue || '0');
+        if (parsedPortfolio) {
+          traderData.allTimePnl = parsedPortfolio.allTime.pnl;
+          traderData.accountValue = parsedPortfolio.allTime.accountValue;
         }
         await storage.upsertTrader(address, traderData);
         logger.info(`  Trader upserted (no fills)`);

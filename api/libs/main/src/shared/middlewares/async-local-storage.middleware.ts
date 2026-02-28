@@ -8,7 +8,6 @@ export const asyncLocalStorageMiddleware = (
   next: () => void
 ) => {
   const contextStore = new Map();
-  mainStorage.enterWith(contextStore);
   mainStorage.run(contextStore, () => {
     contextStore.set('client', req.header('hyperliquid-api-client'));
 

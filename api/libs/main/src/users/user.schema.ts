@@ -4,8 +4,10 @@ import { v4 as uuid } from 'uuid';
 
 export type UserDocument = User & Document;
 
+const SHARED_PREFIX = process.env.SHARED_PREFIX || '';
+
 @Schema({
-  collection: `${process.env.SHARED_PREFIX}_users`,
+  collection: SHARED_PREFIX ? `${SHARED_PREFIX}_users` : 'users',
   timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' }
 })
 export class User {

@@ -67,8 +67,9 @@ export class HyperliquidRateLimiter {
 
 @Injectable()
 export class RateLimiterService {
-  // Info API: 20 req/s x 70% = 14 req/s
-  readonly infoApi = new HyperliquidRateLimiter('hl-info-api', 14, 14);
+  // Info API: 1200 weight/min = 20 weight/s. Use 70% = 14 weight/s.
+  // maxTokens must be >= max single request weight (25 for userFillsByTime/userFunding)
+  readonly infoApi = new HyperliquidRateLimiter('hl-info-api', 25, 14);
 
   // Exchange API: 1.7 req/s x 70% = ~1.2 req/s (conservative for trading)
   readonly exchangeApi = new HyperliquidRateLimiter('hl-exchange-api', 2, 1.2);

@@ -195,7 +195,7 @@ export class HyperliquidClient {
 
       allFunding.push(...funding);
 
-      if (funding.length < 500) break; // Last page
+      if (funding.length < 2000) break; // Last page (API returns up to 2000 per call)
 
       const lastEntry = funding[funding.length - 1];
       startTime = lastEntry.time + 1;
@@ -215,12 +215,63 @@ export class HyperliquidClient {
   }
 }
 
+/**
+ * Parse the portfolio tuple array response into a keyed object.
+ * SDK returns: [["day", Portfolio], ["week", Portfolio], ["month", Portfolio], ["allTime", Portfolio], ...]
+ * Each Portfolio has: { accountValueHistory: [ts, val][], pnlHistory: [ts, val][], vlm: string }
+ *
+ * Returns a convenient object with latest values extracted.
+ */
+export function parsePortfolioResponse(portfolio: any): {
+  day: { pnl: number; accountValue: number; vlm: number };
+  week: { pnl: number; accountValue: number; vlm: number };
+  month: { pnl: number; accountValue: number; vlm: number };
+  allTime: { pnl: number; accountValue: number; vlm: number };
+} | null {
+  if (!portfolio || !Array.isArray(portfolio)) return null;
+
+  const result: Record<string, { pnl: number; accountValue: number; vlm: number }> = {};
+
+  for (const entry of portfolio) {
+    if (!Array.isArray(entry) || entry.length < 2) continue;
+    const [period, data] = entry;
+
+    // Only extract the 4 main periods (skip perpDay, perpWeek, etc.)
+    if (!['day', 'week', 'month', 'allTime'].includes(period)) continue;
+
+    const pnlHistory = data?.pnlHistory || [];
+    const accountValueHistory = data?.accountValueHistory || [];
+
+    // Last entry in each history array is the most recent value
+    const latestPnl = pnlHistory.length > 0
+      ? parseFloat(pnlHistory[pnlHistory.length - 1][1] || '0')
+      : 0;
+    const latestAccountValue = accountValueHistory.length > 0
+      ? parseFloat(accountValueHistory[accountValueHistory.length - 1][1] || '0')
+      : 0;
+    const vlm = parseFloat(data?.vlm || '0');
+
+    result[period] = { pnl: latestPnl, accountValue: latestAccountValue, vlm };
+  }
+
+  if (!result.allTime) return null;
+
+  return {
+    day: result.day || { pnl: 0, accountValue: 0, vlm: 0 },
+    week: result.week || { pnl: 0, accountValue: 0, vlm: 0 },
+    month: result.month || { pnl: 0, accountValue: 0, vlm: 0 },
+    allTime: result.allTime,
+  };
+}
+
 // Singleton instance
 let clientInstance: HyperliquidClient | null = null;
 
 export function getHyperliquidClient(budgetPerMinute?: number): HyperliquidClient {
   if (!clientInstance) {
     clientInstance = new HyperliquidClient(budgetPerMinute);
+  } else if (budgetPerMinute !== undefined) {
+    logger.warn(`[HyperliquidClient] Singleton already initialized, ignoring budgetPerMinute=${budgetPerMinute}`);
   }
   return clientInstance;
 }
