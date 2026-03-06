@@ -229,10 +229,9 @@ loadConfiguration().then(() => {
       app.setGlobalPrefix('/v1')
 
       const disableSwagger = app.get(ConfigService).get('DISABLE_SWAGGER')
-      if (isProd && disableSwagger !== 'true' && disableSwagger !== true) {
-        logger.info('DISABLE_SWAGGER not set in prod — Swagger is force-disabled');
-      }
-      if (!isProd && disableSwagger !== 'true' && disableSwagger !== true) {
+      if (isProd) {
+        logger.info('Production mode — Swagger is disabled');
+      } else if (disableSwagger !== 'true' && disableSwagger !== true) {
         const options = new DocumentBuilder()
           .setTitle('Hyperliquid Analytics API')
           .setDescription('Hyperliquid Copy Trading Analytics API')
